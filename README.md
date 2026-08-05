@@ -8,6 +8,8 @@ With this design, I didn't think it was safe to do this and leave it as a SP, as
 
 There is no special handling for very large variables, binaries, CLR types, etc. There is an ExcludedVariables option, which should work in a pinch. It'd be a pretty tough problem to solve.
 
+Standard caveat: T-SQL is a big language, and there are a lot of edge cases. The commit this line is coming in with is when I realized that writing to a table would mess up common special variables like @@ROWCOUNT and SCOPE_IDENTITY, so I handled those two. And just those two. I am ignoring much of the SQL Server feature set and focusing on the stuff that was common ten years ago (for reasons).
+
 ## How to use
 
 The program is configured by appsettings.json. They're pretty self-explanatory, but I'm not entirely sure how useful all will be. Some settings, like the variable filters or the transaction wrapper, make more sense for a single script, not batch processing a directory, but they're easy to set.
