@@ -1,0 +1,37 @@
+name: Production Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Windows (Self-contained EXE)
+        run: |
+          dotnet publish -c Release -r win-x64 -o ./publish-win -p:PublishSingleFile=true --self-contained true
+          zip -r sql-telemetry-injector-win-x64.zip ./publish-win
+
+      - name: Publish Cross-Platform (Framework Dependent)
+        run: |
+          dotnet publish -c Release -o ./publish-cross
+          zip -r sql-telemetry-injector-crossplatform.zip ./publish-cross
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sql-telemetry-injector-win-x64.zip
+            sql-telemetry-injector-crossplatform.zip
