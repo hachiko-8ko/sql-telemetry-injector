@@ -22,10 +22,12 @@ public class TelemetryRewriter(TelemetryOptions options)
         var visitor = new TelemetryVisitor(_options);
         fragment.Accept(visitor);
 
+        var script = visitor.TransformToInstrumentedScript(rawSqlInput);
+        
         executableCount = visitor.ExecutableStatementCount;
         injectedTelemetryCount = visitor.InjectedTelemetryCount;
-
-        return visitor.TransformToInstrumentedScript(rawSqlInput);
+        
+        return script;
     }
 }
 
