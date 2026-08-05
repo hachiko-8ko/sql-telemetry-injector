@@ -258,31 +258,28 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 InjectedTelemetryCount = stepNum;
 
                 sb.AppendLine();
-                sb.Append("                     ");
+                sb.AppendLine();
                 sb.AppendLine($"-- [Telemetry Step #{stepNum} - Line {stmt.StartLine}]");
-                sb.Append("                     ");
 
                 // Snapshot rowcount because the telemetry insert will set it to 1
-                sb.AppendLine($"SET {RowCountVar} = @@ROWCOUNT");
+                sb.AppendLine($"/* -- */ SET {RowCountVar} = @@ROWCOUNT");
 
                 // Escape CDATA end sequence
                 string safeSql = stmt.SqlText.Replace("]]>", "]]>]]&gt;").Replace("'", "''");
 
                 // Load statement and variable list into variables
-                sb.Append("                     ");
-                sb.AppendLine($"SET {StmtVar} = N'<statement><![CDATA[{safeSql}]]></statement>'");
+                sb.AppendLine($"/* -- */ SET {StmtVar} = N'<statement><![CDATA[{safeSql}]]></statement>'");
 
                 // Only log vars if current location is below where it's declared (input parameters are declared right away)
                 var variablesToLog = watchedVariables.Where(v => parameterNames.Contains(v) ||
                     (_variableDeclarationOffsets.TryGetValue(v, out int declaredAt) && declaredAt <= endOffset)).ToList();
 
-                sb.Append("                     ");
                 if (variablesToLog.Count > 0)
                 {
 
-                    var varCols = string.Join(",\n            ",
-                        variablesToLog.Select(v => $"                        {v} AS [{v}]"));
-                    sb.AppendLine($"SET {VarsVar} = (SELECT \n            {varCols}\n                             FOR XML PATH('variables'), TYPE)");
+                    var varCols = string.Join(",\n",
+                        variablesToLog.Select(v => $"/* -- */       {v} AS [{v}]"));
+                    sb.AppendLine($"/* -- */ SET {VarsVar} = (SELECT \n{varCols}\n/* -- */    FOR XML PATH('variables'), TYPE)");
                 }
                 else
                 {
@@ -290,16 +287,14 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 }
 
                 // This puts the statement in its own scope, so it doesn't overwrite SCOPE_IDENTITY() to make it NULL like a straight insert does
-                sb.Append("                     ");
-                sb.AppendLine($"EXEC sys.sp_executesql {SqlVar}, {ParamsVar}, @p_line = {stmt.StartLine}, @p_stmt = {StmtVar}, @p_vars = {VarsVar}");
+                sb.AppendLine($"/* -- */ EXEC sys.sp_executesql {SqlVar}, {ParamsVar}, @p_line = {stmt.StartLine}, @p_stmt = {StmtVar}, @p_vars = {VarsVar}");
 
                 // ROWCOUNT gets overwritten by the telemetry insert even if the statement appears in a different scope (there's no SCOPE_ROWCOUNT.
                 // This hack resets it (up to all columns x all columns count). It's ugly and it has obvious weaknesses but AFAIK it's our only option.
-                sb.Append("                     ");
-                sb.AppendLine($";WITH __t9_rowcountCTE AS (SELECT TOP ({RowCountVar}) 1 AS x FROM sys.all_columns a, sys.all_columns b) SELECT {DummyVar} = x FROM __t9_rowcountCTE;");
+                sb.AppendLine($"/* -- */ ;WITH __t9_rowcountCTE AS (SELECT TOP ({RowCountVar}) 1 AS x FROM sys.all_columns a, sys.all_columns b) SELECT {DummyVar} = x FROM __t9_rowcountCTE;");
 
-                sb.Append("                     ");
                 sb.AppendLine($"-- [Telemetry Step #{stepNum} END]");
+                sb.AppendLine();
             }
 
             if (needsEnd)
