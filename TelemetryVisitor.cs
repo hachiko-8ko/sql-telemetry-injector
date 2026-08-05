@@ -245,7 +245,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 sb.AppendLine($"    {stmt.StartLine},");
 
                 // Escape CDATA end sequence
-                string safeSql = stmt.SqlText.Replace("]]>", "]]>]]&gt;");
+                string safeSql = stmt.SqlText.Replace("]]>", "]]>]]&gt;").Replace("'", "''");
                 sb.Append("                     ");
                 sb.AppendLine($"    N'<statement><![CDATA[{safeSql}]]></statement>',");
 
