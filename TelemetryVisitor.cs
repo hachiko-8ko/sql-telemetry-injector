@@ -283,7 +283,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 {
 
                     var varCols = string.Join(",\n",
-                        variablesToLog.Select(v => $"/* -- */       {v} AS [{v}]"));
+                        variablesToLog.Select(v => $"/* -- */       {v} AS [{v.Replace("@", "")}]"));
                     sb.AppendLine($"/* -- */ SET {VarsVar} = (SELECT \n{varCols}\n/* -- */    FOR XML PATH('variables'), TYPE)");
                 }
                 else
