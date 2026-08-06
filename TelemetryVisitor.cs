@@ -91,9 +91,14 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
     public override void Visit(DeclareVariableElement node)
     {
         var varName = node.VariableName?.Value;
-        if (!string.IsNullOrEmpty(varName) && !_declaredVariables.Contains(varName, StringComparer.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(varName))
         {
             _declaredVariables.Add(varName);
+
+            if (!_variableDeclarationOffsets.ContainsKey(varName))
+            {
+                _variableDeclarationOffsets[varName] = node.StartOffset + node.FragmentLength;
+            }
         }
 
         base.Visit(node);
