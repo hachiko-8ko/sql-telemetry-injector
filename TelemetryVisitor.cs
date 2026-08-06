@@ -197,6 +197,16 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         sb.AppendLine(");");
         sb.AppendLine();
 
+        // Using a table variable allows us to slip data out of the transaction rollback (if turned on) because inserts aren't rolled back
+        var telemetryTableVarName = "@" + _options.TelemetryTableName.Replace("#", "_");
+        sb.AppendLine($"DECLARE {telemetryTableVarName} TABLE (");
+        sb.AppendLine("    [timestamp] DATETIMEOFFSET NOT NULL,");
+        sb.AppendLine("    [lineNumber] INT NULL,");
+        sb.AppendLine("    [statement] XML NULL,");
+        sb.AppendLine("    [variables] XML NULL");
+        sb.AppendLine(");");
+        sb.AppendLine();
+
         // Begin Transaction Wrapper
         if (_options.IncludeTransactionWrapper)
         {
@@ -281,7 +291,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 
                 if (variablesToLog.Count > 0)
                 {
-
+                    // note that nulls don't appear in the XML. whether that's a plus or minus is up to you
                     var varCols = string.Join(",\n",
                         variablesToLog.Select(v => $"/* -- */       {v} AS [{v.Replace("@", "")}]"));
                     sb.AppendLine($"/* -- */ SET {VarsVar} = (SELECT \n{varCols}\n/* -- */    FOR XML PATH('variables'), TYPE)");
@@ -329,12 +339,28 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         sb.AppendLine("-- --------------------------------------------------------------------------");
 
         sb.AppendLine();
-        sb.AppendLine($"     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1");
+
+        if (_options.IncludeTransactionWrapper)
+        {
+            // To get the data outside the transaction, first insert into the table variable
+            sb.AppendLine($"INSERT INTO {telemetryTableVarName} ([timestamp], [lineNumber], [statement], [variables]) " +
+                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
+            sb.AppendLine();
+        }
+
 
         sb.AppendLine("END TRY");
         sb.AppendLine("BEGIN CATCH");
         sb.AppendLine("     SELECT ERROR_NUMBER() AS Error, ERROR_MESSAGE() AS Message, ERROR_LINE() AS Line;");
-        sb.AppendLine($"     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1;");
+        sb.AppendLine();
+
+        if (_options.IncludeTransactionWrapper)
+        {
+            // To get the data outside the transaction, first insert into the table variable
+            sb.AppendLine($"     INSERT INTO {telemetryTableVarName} ([timestamp], [lineNumber], [statement], [variables]) " +
+                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
+            sb.AppendLine();
+        }
 
         // End with Rollback Transaction
         if (_options.IncludeTransactionWrapper)
@@ -342,13 +368,17 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
             sb.AppendLine("     IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;");
         }
 
-        sb.AppendLine("     THROW;");
         sb.AppendLine("END CATCH");
 
-        // End with Rollback Transaction
+        // End with Rollback Transaction (if hits catch, double rollback, no big deal)
         if (_options.IncludeTransactionWrapper)
         {
             sb.AppendLine("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;");
+            sb.AppendLine();
+
+            // The transaction is rolled back and the data is in the table variable. Now write it back.
+            sb.AppendLine($"INSERT INTO {_options.TelemetryTableName} ([timestamp], [lineNumber], [statement], [variables]) " +
+                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {telemetryTableVarName}");
         }
 
         return sb.ToString();
