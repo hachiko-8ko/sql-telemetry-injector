@@ -324,12 +324,12 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         sb.AppendLine("-- --------------------------------------------------------------------------");
 
         sb.AppendLine();
-        sb.AppendLine("     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1");
+        sb.AppendLine($"     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1");
 
         sb.AppendLine("END TRY");
         sb.AppendLine("BEGIN CATCH");
         sb.AppendLine("     SELECT ERROR_NUMBER() AS Error, ERROR_MESSAGE() AS Message, ERROR_LINE() AS Line;");
-        sb.AppendLine("     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1;");
+        sb.AppendLine($"     SELECT * FROM {_options.TelemetryTableName} ORDER BY 1;");
 
         // End with Rollback Transaction
         if (_options.IncludeTransactionWrapper)
