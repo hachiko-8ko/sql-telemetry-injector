@@ -221,7 +221,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         sb.AppendLine("-- Begin Procedure Content");
         sb.AppendLine("-- --------------------------------------------------------------------------");
 
-        // If this was CREAET PROCEDURE Whatever AS BEGIN END, removing the create procedure creates invalid SQL. This is weird but valid...
+        // If this was CREATE PROCEDURE Whatever AS BEGIN END, removing the create procedure creates invalid SQL. This is weird but valid...
         if (_hasTopLevelBegin)
         {
             sb.AppendLine("IF 1 = 1");
@@ -235,89 +235,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 
         var sortedExecutables = _executableStatements.OrderBy(s => s.StartOffset).ToList();
 
-        foreach (var stmt in sortedExecutables)
-        {
-            if (stmt.StartOffset < currentPos)
-            {
-                continue;
-            }
-
-            int endOffset = stmt.StartOffset + stmt.FragmentLength;
-
-            bool needsBegin = _wrapBeginOffsets.Contains(stmt.StartOffset);
-            bool needsEnd = _wrapEndOffsets.Contains(endOffset);
-
-            if (needsBegin)
-            {
-                int prefixLen = stmt.StartOffset - currentPos;
-                if (prefixLen > 0)
-                {
-                    sb.Append(rawSql.AsSpan(currentPos, prefixLen));
-                }
-                sb.AppendLine();
-                sb.AppendLine("BEGIN");
-                sb.Append(rawSql.AsSpan(stmt.StartOffset, stmt.FragmentLength));
-            }
-            else
-            {
-                string segment = rawSql.Substring(currentPos, endOffset - currentPos);
-                sb.Append(segment);
-            }
-
-            currentPos = endOffset;
-
-            execCounter++;
-            if (execCounter % _options.StatementFrequency == 0)
-            {
-                stepNum++;
-                InjectedTelemetryCount = stepNum;
-
-                sb.AppendLine();
-                sb.AppendLine();
-                sb.AppendLine($"-- [Telemetry Step #{stepNum} - Line {stmt.StartLine}]");
-
-                // Snapshot rowcount because the telemetry insert will set it to 1
-                sb.AppendLine($"/* -- */ SET {RowCountVar} = @@ROWCOUNT");
-
-                // Escape CDATA end sequence
-                string safeSql = stmt.SqlText.Replace("]]>", "]]>]]&gt;").Replace("'", "''");
-
-                // Load statement and variable list into variables
-                sb.AppendLine($"/* -- */ SET {StmtVar} = N'<statement><![CDATA[{safeSql}]]></statement>'");
-
-                // Only log vars if current location is below where it's declared (input parameters are declared right away)
-                var variablesToLog = watchedVariables.Where(v => parameterNames.Contains(v) ||
-                    (_variableDeclarationOffsets.TryGetValue(v, out int declaredAt) && declaredAt <= endOffset)).ToList();
-
-                if (variablesToLog.Count > 0)
-                {
-                    // note that nulls don't appear in the XML. whether that's a plus or minus is up to you
-                    var varCols = string.Join(",\n",
-                        variablesToLog.Select(v => $"/* -- */       {v} AS [{v.Replace("@", "")}]"));
-                    sb.AppendLine($"/* -- */ SET {VarsVar} = (SELECT \n{varCols}\n/* -- */    FOR XML PATH('variables'), TYPE)");
-                }
-                else
-                {
-                    sb.AppendLine($"SET {VarsVar} = NULL");
-                }
-
-                // This puts the statement in its own scope, so it doesn't overwrite SCOPE_IDENTITY() to make it NULL like a straight insert does
-                sb.AppendLine($"/* -- */ EXEC sys.sp_executesql {SqlVar}, {ParamsVar}, @p_line = {stmt.StartLine}, @p_stmt = {StmtVar}, @p_vars = {VarsVar}");
-
-                // ROWCOUNT gets overwritten by the telemetry insert even if the statement appears in a different scope (there's no SCOPE_ROWCOUNT.
-                // This hack resets it (up to all columns x all columns count). It's ugly and it has obvious weaknesses but AFAIK it's our only option.
-                sb.AppendLine($"/* -- */ ;WITH __t9_rowcountCTE AS (SELECT TOP ({RowCountVar}) 1 AS x FROM sys.all_columns a, sys.all_columns b) SELECT {DummyVar} = x FROM __t9_rowcountCTE;");
-
-                sb.AppendLine($"-- [Telemetry Step #{stepNum} END]");
-                sb.AppendLine();
-            }
-
-            if (needsEnd)
-            {
-                sb.AppendLine("END");
-                sb.AppendLine();
-            }
-        }
+        AddSqlStatement(rawSql, sb, watchedVariables, parameterNames, ref currentPos, ref execCounter, ref stepNum, sortedExecutables);
 
         if (currentPos < rawSql.Length)
         {
@@ -382,6 +300,97 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         }
 
         return sb.ToString();
+    }
+
+    private void AddSqlStatement(string rawSql, StringBuilder sb, List<string> watchedVariables, HashSet<string> parameterNames, ref int currentPos, ref int execCounter, ref int stepNum, List<ExecutableStatementInfo> sortedExecutables)
+    {
+        foreach (var stmt in sortedExecutables)
+        {
+            if (stmt.StartOffset < currentPos)
+            {
+                continue;
+            }
+
+            int endOffset = stmt.StartOffset + stmt.FragmentLength;
+
+            bool needsBegin = _wrapBeginOffsets.Contains(stmt.StartOffset);
+            bool needsEnd = _wrapEndOffsets.Contains(endOffset);
+
+            if (needsBegin)
+            {
+                int prefixLen = stmt.StartOffset - currentPos;
+                if (prefixLen > 0)
+                {
+                    sb.Append(rawSql.AsSpan(currentPos, prefixLen));
+                }
+                sb.AppendLine();
+                sb.AppendLine("BEGIN");
+                sb.Append(rawSql.AsSpan(stmt.StartOffset, stmt.FragmentLength));
+            }
+            else
+            {
+                string segment = rawSql.Substring(currentPos, endOffset - currentPos);
+                sb.Append(segment);
+            }
+
+            currentPos = endOffset;
+            AddDebugTelemetry(sb, watchedVariables, parameterNames, ref execCounter, ref stepNum, stmt, endOffset);
+
+            if (needsEnd)
+            {
+                sb.AppendLine("END");
+                sb.AppendLine();
+            }
+        }
+    }
+
+    private void AddDebugTelemetry(StringBuilder sb, List<string> watchedVariables, HashSet<string> parameterNames, ref int execCounter, ref int stepNum, ExecutableStatementInfo stmt, int endOffset)
+    {
+        execCounter++;
+        if (execCounter % _options.StatementFrequency == 0)
+        {
+            stepNum++;
+            InjectedTelemetryCount = stepNum;
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine($"-- [Telemetry Step #{stepNum} - Line {stmt.StartLine}]");
+
+            // Snapshot rowcount because the telemetry insert will set it to 1
+            sb.AppendLine($"/* -- */ SET {RowCountVar} = @@ROWCOUNT");
+
+            // Escape CDATA end sequence
+            string safeSql = stmt.SqlText.Replace("]]>", "]]>]]&gt;").Replace("'", "''");
+
+            // Load statement and variable list into variables
+            sb.AppendLine($"/* -- */ SET {StmtVar} = N'<statement><![CDATA[{safeSql}]]></statement>'");
+
+            // Only log vars if current location is below where it's declared (input parameters are declared right away)
+            var variablesToLog = watchedVariables.Where(v => parameterNames.Contains(v) ||
+                (_variableDeclarationOffsets.TryGetValue(v, out int declaredAt) && declaredAt <= endOffset)).ToList();
+
+            if (variablesToLog.Count > 0)
+            {
+                // note that nulls don't appear in the XML. whether that's a plus or minus is up to you
+                var varCols = string.Join(",\n",
+                    variablesToLog.Select(v => $"/* -- */       {v} AS [{v.Replace("@", "")}]"));
+                sb.AppendLine($"/* -- */ SET {VarsVar} = (SELECT \n{varCols}\n/* -- */    FOR XML PATH('variables'), TYPE)");
+            }
+            else
+            {
+                sb.AppendLine($"SET {VarsVar} = NULL");
+            }
+
+            // This puts the statement in its own scope, so it doesn't overwrite SCOPE_IDENTITY() to make it NULL like a straight insert does
+            sb.AppendLine($"/* -- */ EXEC sys.sp_executesql {SqlVar}, {ParamsVar}, @p_line = {stmt.StartLine}, @p_stmt = {StmtVar}, @p_vars = {VarsVar}");
+
+            // ROWCOUNT gets overwritten by the telemetry insert even if the statement appears in a different scope (there's no SCOPE_ROWCOUNT.
+            // This hack resets it (up to all columns x all columns count). It's ugly and it has obvious weaknesses but AFAIK it's our only option.
+            sb.AppendLine($"/* -- */ ;WITH __t9_rowcountCTE AS (SELECT TOP ({RowCountVar}) 1 AS x FROM sys.all_columns a, sys.all_columns b) SELECT {DummyVar} = x FROM __t9_rowcountCTE;");
+
+            sb.AppendLine($"-- [Telemetry Step #{stepNum} END]");
+            sb.AppendLine();
+        }
     }
 
     private static string GetFragmentText(TSqlFragment fragment)
