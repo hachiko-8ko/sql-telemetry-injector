@@ -5,17 +5,7 @@ namespace SqlTelemetry;
 
 public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 {
-    private readonly TelemetryOptions _options = options;
-    private readonly List<ParameterInfo> _parameters = [];
-    private readonly List<string> _declaredVariables = [];
-    private readonly Dictionary<string, int> _variableDeclarationOffsets = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<ExecutableStatementInfo> _executableStatements = [];
-    private readonly HashSet<int> _wrapBeginOffsets = [];
-    private readonly HashSet<int> _wrapEndOffsets = [];
-    private int _procedureBodyStartOffset = -1;
-    private bool _hasTopLevelBegin = false;
-
-    // To preserve SCOPE_IDENTITY (insert via exec, different scope) and ROWCOUNT (use dummy variable), use capture these variables.
+    // To preserve SCOPE_IDENTITY (insert via exec, different scope) and ROWCOUNT (use dummy variable), use these variables.
     private const string RowCountVar = "@__t9_rowcount";
     private const string DummyVar = "@__t9_dummy";
     private const string StmtVar = "@__t9_statement";
@@ -23,8 +13,19 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
     private const string SqlVar = "@__t9_dynamicsql";
     private const string ParamsVar = "@__t9_dynamicparams";
 
+    private readonly TelemetryOptions _options = options;
+    private readonly List<ParameterInfo> _parameters = [];
+    private readonly List<string> _declaredVariables = [];
+    private readonly Dictionary<string, int> _variableDeclarationOffsets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ExecutableStatementInfo> _executableStatements = [];
+    private readonly HashSet<int> _wrapBeginOffsets = [];
+    private readonly HashSet<int> _wrapEndOffsets = [];
+
     public int ExecutableStatementCount => _executableStatements.Count;
     public int InjectedTelemetryCount { get; private set; }
+
+    private int _procedureBodyStartOffset = -1;
+    private bool _hasTopLevelBegin = false;
 
     public override void Visit(CreateProcedureStatement node)
     {
@@ -113,20 +114,6 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
     public override void Visit(SetVariableStatement node) => TrackExecutable(node, "SET");
     public override void Visit(ExecuteStatement node) => TrackExecutable(node, "EXEC");
     public override void Visit(TruncateTableStatement node) => TrackExecutable(node, "TRUNCATE");
-
-    private void TrackExecutable(TSqlStatement statement, string type)
-    {
-        _executableStatements.Add(new ExecutableStatementInfo
-        {
-            StatementType = type,
-            StartLine = statement.StartLine,
-            StartOffset = statement.StartOffset,
-            FragmentLength = statement.FragmentLength,
-            SqlText = GetFragmentText(statement),
-            StatementFragment = statement
-        });
-    }
-
     public string TransformToInstrumentedScript(string rawSql)
     {
         var sb = new StringBuilder();
@@ -299,6 +286,19 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         }
 
         return sb.ToString();
+    }
+
+    private void TrackExecutable(TSqlStatement statement, string type)
+    {
+        _executableStatements.Add(new ExecutableStatementInfo
+        {
+            StatementType = type,
+            StartLine = statement.StartLine,
+            StartOffset = statement.StartOffset,
+            FragmentLength = statement.FragmentLength,
+            SqlText = GetFragmentText(statement),
+            StatementFragment = statement
+        });
     }
 
     private void AddSqlStatement(string rawSql, StringBuilder sb, List<string> watchedVariables, HashSet<string> parameterNames, ref int currentPos, ref int execCounter, ref int stepNum, List<ExecutableStatementInfo> sortedExecutables)
