@@ -227,7 +227,6 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
             sb.AppendLine("IF 1 = 1");
         }
 
-        // Inject Telemetry while PRESERVING ALL ORIGINAL SQL STRUCTURE (IF, ELSE, BEGIN, END, etc.)
         int bodyStart = _procedureBodyStartOffset >= 0 ? _procedureBodyStartOffset : 0;
         int currentPos = bodyStart;
         int execCounter = 0;
@@ -235,11 +234,12 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 
         var sortedExecutables = _executableStatements.OrderBy(s => s.StartOffset).ToList();
 
+        // Inject Debugging Telemetry while PRESERVING ALL ORIGINAL SQL STRUCTURE (IF, ELSE, BEGIN, END, etc.)
         AddSqlStatement(rawSql, sb, watchedVariables, parameterNames, ref currentPos, ref execCounter, ref stepNum, sortedExecutables);
 
         if (currentPos < rawSql.Length)
         {
-            string remaining = rawSql.Substring(currentPos);
+            string remaining = rawSql[currentPos..];
             // Comment out standalone GO statements to maintain variable scope in straight test scripts
             remaining = System.Text.RegularExpressions.Regex.Replace(
                 remaining,
@@ -265,7 +265,6 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
             sb.AppendLine();
         }
-
 
         sb.AppendLine("END TRY");
         sb.AppendLine("BEGIN CATCH");
@@ -329,7 +328,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
             }
             else
             {
-                string segment = rawSql.Substring(currentPos, endOffset - currentPos);
+                string segment = rawSql[currentPos..endOffset];
                 sb.Append(segment);
             }
 
