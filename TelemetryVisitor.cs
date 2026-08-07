@@ -239,7 +239,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 
         if (currentPos < rawSql.Length)
         {
-            string remaining = rawSql.Substring(currentPos);
+            string remaining = rawSql[currentPos..];
             // Comment out standalone GO statements to maintain variable scope in straight test scripts
             remaining = System.Text.RegularExpressions.Regex.Replace(
                 remaining,
@@ -265,7 +265,6 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
                 $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
             sb.AppendLine();
         }
-
 
         sb.AppendLine("END TRY");
         sb.AppendLine("BEGIN CATCH");
@@ -329,7 +328,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
             }
             else
             {
-                string segment = rawSql.Substring(currentPos, endOffset - currentPos);
+                string segment = rawSql[currentPos..endOffset];
                 sb.Append(segment);
             }
 
