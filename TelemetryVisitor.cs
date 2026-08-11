@@ -177,6 +177,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         sb.AppendLine($"    DROP TABLE {_options.TelemetryTableName};");
         sb.AppendLine();
         sb.AppendLine($"CREATE TABLE {_options.TelemetryTableName} (");
+        sb.AppendLine("    [id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,");
         sb.AppendLine("    [timestamp] DATETIMEOFFSET NOT NULL DEFAULT SYSDATETIMEOFFSET(),");
         sb.AppendLine("    [lineNumber] INT NULL,");
         sb.AppendLine("    [statement] XML NULL,");
@@ -187,6 +188,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         // Using a table variable allows us to slip data out of the transaction rollback (if turned on) because inserts aren't rolled back
         var telemetryTableVarName = "@" + _options.TelemetryTableName.Replace("#", "_");
         sb.AppendLine($"DECLARE {telemetryTableVarName} TABLE (");
+        sb.AppendLine("    [id] INT NOT NULL PRIMARY KEY,");
         sb.AppendLine("    [timestamp] DATETIMEOFFSET NOT NULL,");
         sb.AppendLine("    [lineNumber] INT NULL,");
         sb.AppendLine("    [statement] XML NULL,");
@@ -248,8 +250,8 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         if (_options.IncludeTransactionWrapper)
         {
             // To get the data outside the transaction, first insert into the table variable
-            sb.AppendLine($"INSERT INTO {telemetryTableVarName} ([timestamp], [lineNumber], [statement], [variables]) " +
-                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
+            sb.AppendLine($"INSERT INTO {telemetryTableVarName} ([id], [timestamp], [lineNumber], [statement], [variables]) " +
+                $"SELECT [id], [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
             sb.AppendLine();
         }
 
@@ -261,8 +263,8 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
         if (_options.IncludeTransactionWrapper)
         {
             // To get the data outside the transaction, first insert into the table variable
-            sb.AppendLine($"     INSERT INTO {telemetryTableVarName} ([timestamp], [lineNumber], [statement], [variables]) " +
-                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
+            sb.AppendLine($"     INSERT INTO {telemetryTableVarName} ([id], [timestamp], [lineNumber], [statement], [variables]) " +
+                $"SELECT [id], [timestamp], [lineNumber], [statement], [variables] FROM {_options.TelemetryTableName}");
             sb.AppendLine();
         }
 
@@ -282,7 +284,7 @@ public class TelemetryVisitor(TelemetryOptions options) : TSqlFragmentVisitor
 
             // The transaction is rolled back and the data is in the table variable. Now write it back.
             sb.AppendLine($"INSERT INTO {_options.TelemetryTableName} ([timestamp], [lineNumber], [statement], [variables]) " +
-                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {telemetryTableVarName}");
+                $"SELECT [timestamp], [lineNumber], [statement], [variables] FROM {telemetryTableVarName} ORDER BY [id]");
         }
 
         return sb.ToString();
