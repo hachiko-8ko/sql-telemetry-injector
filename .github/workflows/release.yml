@@ -37,20 +37,13 @@ jobs:
           test -s sql-telemetry-injector-crossplatform.zip
           df -h "${RUNNER_TEMP:-/tmp}"
     
-      - name: Upload Windows release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          files: sql-telemetry-injector-win-x64.zip
-          overwrite_files: true
-          fail_on_unmatched_files: true
+      - name: Upload release assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-      - name: Upload cross-platform release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          files: sql-telemetry-injector-crossplatform.zip
-          overwrite_files: true
-          fail_on_unmatched_files: true
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            sql-telemetry-injector-win-x64.zip \
+            sql-telemetry-injector-crossplatform.zip \
+            --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
