@@ -36,14 +36,14 @@ jobs:
           test -s sql-telemetry-injector-win-x64.zip
           test -s sql-telemetry-injector-crossplatform.zip
           df -h "${RUNNER_TEMP:-/tmp}"
-    
+
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" \
+          gh release upload \
+            "${{ github.event.release.tag_name }}" \
             sql-telemetry-injector-win-x64.zip \
             sql-telemetry-injector-crossplatform.zip \
+            --repo "${{ github.repository }}" \
             --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
